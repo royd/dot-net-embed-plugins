@@ -1,0 +1,47 @@
+buildscript {
+    project.ext.kotlin_version = '1.5.31'
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+plugins {
+    id 'java-gradle-plugin'
+    id 'org.jetbrains.kotlin.jvm' version "$kotlin_version"
+    id 'maven-publish'
+}
+
+group = "com.roy"
+version = "0.0.1-local1"
+
+gradlePlugin {
+    plugins {
+        appPlugin {
+            id = "${group}.dot-net-embed-app"
+            implementationClass = "com.roy.plugins.DotNetAppPlugin"
+        }
+        libraryPlugin {
+            id = "${group}.dot-net-embed-library"
+            implementationClass = "com.roy.plugins.DotNetLibraryPlugin"
+        }
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.android.tools.build:gradle:4.2.0'
+    implementation "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+    testImplementation gradleTestKit()
+}
+
+test {
+    useJUnitPlatform()
+}
