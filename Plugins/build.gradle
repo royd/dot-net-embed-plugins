@@ -1,13 +1,24 @@
+buildscript {
+    repositories {
+        google()
+    }
+    dependencies {
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.3.50'
+    }
+}
+
 plugins {
+    id 'java-gradle-plugin'
     id 'org.jetbrains.kotlin.jvm' version '1.3.50'
 }
 
 repositories {
-    jcenter()
+    google()
+    mavenCentral()
 }
 
 dependencies {
-    implementation gradleApi()
+    implementation 'com.android.tools.build:gradle:4.2.0'
     implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8'
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
