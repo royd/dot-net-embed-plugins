@@ -82,7 +82,7 @@ class BuildTest {
 
             assertEquals(TaskOutcome.SUCCESS, result.task(taskName)?.outcome)
 
-            val apk = dotNetFiles.apkFile(testConfig, "DotNetLibrary.DotNetLibrary").get()
+            val apk = dotNetFiles.apkFile(testConfig, "com.roy.dotnetlibrary").get()
             assertTrue(apk.exists(), "Apk does not exist at: ${apk.absolutePath}")
 
             val resultTwo = build()

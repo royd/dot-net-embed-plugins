@@ -1,9 +1,9 @@
 ﻿using System;
 using Android.Runtime;
 
-namespace Com.Roy
+namespace Com.Roy.DotNetLibrary
 {
-    [Register("com.roy.Logger")]
+    [Register("com.roy.dotnetlibrary.Logger")]
     public class Logger : Java.Lang.Object
     {
         [Java.Interop.Export("log")]
