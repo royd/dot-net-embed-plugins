@@ -3,7 +3,7 @@ package com.roy.plugins
 import com.android.build.gradle.AppExtension
 import com.android.build.gradle.internal.tasks.factory.dependsOn
 import com.android.ide.common.symbols.parseManifest
-import groovy.lang.Closure
+import com.roy.plugins.xml.AndroidApiInfo
 import org.gradle.api.*
 import org.gradle.api.tasks.Exec
 import org.gradle.api.logging.LogLevel
@@ -17,6 +17,7 @@ class DotNetLibraryPlugin : Plugin<Project> {
         const val dotNetGroup = "dotNet"
         const val monoFrameworkPath = "/Library/Frameworks/Mono.framework/Versions/Current"
         const val xamarinAndroidPath = "/Library/Frameworks/Xamarin.Android.framework/Versions/Current"
+        const val monoAndroidVersionsPath = "$xamarinAndroidPath/lib/xamarin.android/xbuild-frameworks/MonoAndroid"
         const val buildTasksDllFile = "$xamarinAndroidPath/lib/xamarin.android/xbuild/Xamarin/Android/Xamarin.Android.Build.Tasks.dll"
         const val monoDisPath = "$monoFrameworkPath/bin/monodis"
         const val msBuildExecutable = "$monoFrameworkPath/Commands/msbuild"
@@ -32,24 +33,62 @@ class DotNetLibraryPlugin : Plugin<Project> {
     class DotNetTaskNames {
         val clean = "cleanDotNet"
         fun compile(buildConfig: String): String = "compile${buildConfig.capitalize()}DotNet"
+        fun copyJavaSrc(buildConfig: String): String = "copyJavaSrc${buildConfig.capitalize()}DotNet"
         fun unpackProguardFile(buildConfig: String): String = "unpack${buildConfig.capitalize()}DotNetProguardFile"
         fun unzipApk(buildConfig: String): String = "unzipApk${buildConfig.capitalize()}"
     }
 
+    /**
+     * Relative to system root directory
+     */
+    class MonoPaths {
+        private val _monoAndroidJar = "$monoAndroidVersionsPath/%s/mono.android.jar"
+
+        val javaRuntimeJar = "$xamarinAndroidPath/lib/xamarin.android/xbuild/Xamarin/Android/java_runtime.jar"
+
+        fun monoAndroidJar(version: String): String = _monoAndroidJar.format(version)
+    }
+
+    /**
+     * Relative to the Android app project
+     */
+    class AndroidFiles(private val androidProjectDir: File) {
+        private val _dotNetJavaSrc = "build/intermediates/dot_net/%s/src"
+        private val _buildTasksDir = "build/intermediates/dot_net/%s/disassembled/Xamarin.Android.Build.Tasks"
+        private val _proguardFile = "build/intermediates/dot_net/%s/disassembled/Xamarin.Android.Build.Tasks/proguard_xamarin.cfg"
+        private val _unzippedApkDir = "build/intermediates/dot_net/%s/apk"
+        private val _unzippedAssembliesDir = "build/intermediates/dot_net/%s/apk/assemblies"
+        private val _unzippedJniLibsDir = "build/intermediates/dot_net/%s/apk/lib"
+
+        private fun resolve(path: String, vararg args:String): File = androidProjectDir.resolve(path.format(*args))
+
+        fun dotNetJavaSrcDir(buildConfig: String) = resolve(_dotNetJavaSrc, buildConfig)
+
+        fun buildTasksDir(buildConfig: String) = resolve(_buildTasksDir, buildConfig)
+
+        fun proguardFile(buildConfig: String) = resolve(_proguardFile, buildConfig)
+
+        fun unzippedApkDir(buildConfig: String) = resolve(_unzippedApkDir, buildConfig)
+
+        fun unzippedAssembliesDir(buildConfig: String) = resolve(_unzippedAssembliesDir, buildConfig)
+
+        fun unzippedJniLibsDir(buildConfig: String) = resolve(_unzippedJniLibsDir, buildConfig)
+    }
+
+    /**
+     * Relative to the C# project
+     */
     class DotNetFiles(val dotNetProjectDir: Provider<File>) {
         private val _binDir = "bin"
         private val _binConfigDir = "bin/%s"
 
+        private val _manifestFile = "Properties/AndroidManifest.xml"
+
         private val _objDir = "obj"
         private val _objConfigDir = "obj/%s"
         private val _javaSrcDir = "obj/%s/android/src"
-        private val _manifestFile = "obj/%s/android/manifest/AndroidManifest.xml"
-        private val _buildTasksDir = "obj/%s/disassembled/Xamarin.Android.Build.Tasks"
-        private val _proguardFile = "obj/%s/disassembled/Xamarin.Android.Build.Tasks/proguard_xamarin.cfg"
         private val _apkFile = "obj/%s/android/bin/%s.apk"
-        private val _unzippedApkDir = "obj/%s/android/bin/apk"
-        private val _unzippedAssembliesDir = "obj/%s/android/bin/apk/assemblies"
-        private val _unzippedJniLibsDir = "obj/%s/android/bin/apk/lib"
+
 
         val binDir: Provider<File> = dotNetProjectDir.map { it.resolve(_binDir) }
         val objDir: Provider<File> = dotNetProjectDir.map { it.resolve(_objDir) }
@@ -62,21 +101,11 @@ class DotNetLibraryPlugin : Plugin<Project> {
 
         fun objConfigDir(buildConfig: String) = map(_objConfigDir, buildConfig)
 
-        fun buildTasksDir(buildConfig: String) = map(_buildTasksDir, buildConfig)
-
         fun manifestFile(buildConfig: String) = map(_manifestFile, buildConfig)
-
-        fun proguardFile(buildConfig: String) = map(_proguardFile, buildConfig)
 
         fun javaSrcDir(buildConfig: String) = map(_javaSrcDir, buildConfig)
 
         fun apkFile(buildConfig: String, packageName: String) = map(_apkFile, buildConfig, packageName)
-
-        fun unzippedApkDir(buildConfig: String) = map(_unzippedApkDir, buildConfig)
-
-        fun unzippedAssembliesDir(buildConfig: String) = map(_unzippedAssembliesDir, buildConfig)
-
-        fun unzippedJniLibsDir(buildConfig: String) = map(_unzippedJniLibsDir, buildConfig)
     }
 
     override fun apply(target: Project) {
@@ -84,6 +113,9 @@ class DotNetLibraryPlugin : Plugin<Project> {
             pluginLogLevel.convention(LogLevel.INFO)
             msBuildLogLevel.convention(LogLevel.INFO)
         }
+
+        val monoFiles = MonoPaths()
+        val androidFiles = AndroidFiles(target.projectDir)
 
         val baseDir = dotNetExtension.projectFile.map { target.file(it).parentFile }
         val dotNetFiles = DotNetFiles(baseDir)
@@ -104,7 +136,7 @@ class DotNetLibraryPlugin : Plugin<Project> {
 
             // Disassemble Xamarin.Android.Build.Tasks.dll to get the default Xamarin proguard file
             target.tasks.register(dotNetTaskNames.unpackProguardFile(androidBuildTypeName), Exec::class.java) { execTask ->
-                val dir = dotNetFiles.buildTasksDir(androidBuildTypeName).get()
+                val dir = androidFiles.buildTasksDir(androidBuildTypeName)
                 execTask.apply {
                     // Use anonymous class instead of lambda or task will never be up to date
                     doFirst(object : Action<Task> {
@@ -117,7 +149,7 @@ class DotNetLibraryPlugin : Plugin<Project> {
                     commandLine(monoDisPath, "--mresources", buildTasksDllFile)
                     workingDir(dir)
                     inputs.file(buildTasksDllFile)
-                    outputs.file(dotNetFiles.proguardFile(androidBuildTypeName))
+                    outputs.file(androidFiles.proguardFile(androidBuildTypeName))
                 }
             }
 
@@ -190,42 +222,85 @@ class DotNetLibraryPlugin : Plugin<Project> {
                 }
             }
 
+            target.tasks.register(dotNetTaskNames.copyJavaSrc(androidBuildTypeName), Copy::class.java) { copyTask ->
+                copyTask.apply {
+                    group = dotNetGroup
+                    from(dotNetFiles.javaSrcDir(androidBuildTypeName))
+                    into(androidFiles.dotNetJavaSrcDir(androidBuildTypeName))
+                    dependsOn(compileDotNetProvider)
+                }
+            }
+
             target.tasks.register(dotNetTaskNames.unzipApk(androidBuildTypeName), Copy::class.java) { copyTask ->
                 val manifestFile = dotNetFiles.manifestFile(androidBuildTypeName).get()
-                val packageName = parseManifest(manifestFile).`package`
+                if (!manifestFile.exists()) {
+                    throw GradleException("Manifest is required but does not exist: ${manifestFile.absolutePath}")
+                }
+
+                val manifest = parseManifest(manifestFile)
+                val packageName: String = manifest.`package`
+                    ?: throw GradleException("Failed to find the 'package' attribute in manifest file: ${manifestFile.absolutePath}")
+
                 val apkFile = dotNetFiles.apkFile(androidBuildTypeName, packageName)
 
                 copyTask.apply {
                     group = dotNetGroup
                     from(target.zipTree(apkFile))
-                    into(dotNetFiles.unzippedApkDir(androidBuildTypeName))
+                    into(androidFiles.unzippedApkDir(androidBuildTypeName))
                     dependsOn(compileDotNetProvider)
                 }
             }
         }
 
+        val androidExtension = target.extensions.getByType(AppExtension::class.java)
+        androidExtension.buildTypes.all { buildType ->
+            val androidBuildTypeName = buildType.name
+
+            buildType.proguardFile(androidFiles.proguardFile(androidBuildTypeName))
+
+            androidExtension.sourceSets.getByName(androidBuildTypeName).apply {
+                // Java source dirs must be set prior to afterEvaluate, or classes may
+                // not be added to the classpath.
+                java.srcDirs(androidFiles.dotNetJavaSrcDir(androidBuildTypeName))
+                // C# assemblies.
+                resources.apply {
+                    srcDirs(androidFiles.unzippedApkDir(androidBuildTypeName))
+                    include("assemblies/**")
+                }
+                // Native .so libs.
+                jniLibs.srcDir(androidFiles.unzippedJniLibsDir(androidBuildTypeName))
+            }
+        }
+
         target.afterEvaluate {
+            val apiInfo = AndroidApiInfo.find(target.file(monoAndroidVersionsPath), androidExtension.compileSdkVersion!!.removePrefix("android-").toInt())
+
+            target.dependencies.add("api", target.files(
+                monoFiles.javaRuntimeJar,
+                monoFiles.monoAndroidJar(apiInfo.version)
+            ))
+
             val cleanDotNet = target.tasks.named(dotNetTaskNames.clean)
             target.tasks.named(androidTaskNames.clean).dependsOn(cleanDotNet)
 
-            val androidExtension = target.extensions.getByType(AppExtension::class.java)
             androidExtension.buildTypes.all { buildType ->
                 val androidBuildTypeName = buildType.name
 
-                androidExtension.sourceSets.getByName(androidBuildTypeName).apply {
-                    java.srcDir(dotNetFiles.javaSrcDir(androidBuildTypeName))
-                    resources.srcDir(dotNetFiles.unzippedAssembliesDir(androidBuildTypeName))
-                    jniLibs.srcDir(dotNetFiles.unzippedJniLibsDir(androidBuildTypeName))             // Native .so libs
-                }
-
-                buildType.proguardFile(dotNetFiles.proguardFile(androidBuildTypeName))
-
+                val copyDotNetJavaSrc = target.tasks.named(dotNetTaskNames.copyJavaSrc(androidBuildTypeName))
                 val unpackDotNetProguardFile = target.tasks.named(dotNetTaskNames.unpackProguardFile(androidBuildTypeName))
                 val unzipApkProvider = target.tasks.named(dotNetTaskNames.unzipApk(androidBuildTypeName))
 
                 target.tasks.named(androidTaskNames.mergeProguardFiles(androidBuildTypeName)).dependsOn(unpackDotNetProguardFile)
-                target.tasks.named(androidTaskNames.compileJava(androidBuildTypeName)).dependsOn(unzipApkProvider)
-                target.tasks.named(androidTaskNames.compileKotlin(androidBuildTypeName)).dependsOn(unzipApkProvider)
+
+                target.tasks.named(androidTaskNames.compileJava(androidBuildTypeName)).apply {
+                    dependsOn(copyDotNetJavaSrc)
+                    dependsOn(unzipApkProvider)
+                }
+
+                target.tasks.named(androidTaskNames.compileKotlin(androidBuildTypeName)).apply {
+                    dependsOn(copyDotNetJavaSrc)
+                    dependsOn(unzipApkProvider)
+                }
             }
         }
     }
